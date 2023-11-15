@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 import pymc as pm
+import pandas as pd
 import time
 import numpy.random as npr
 
@@ -44,13 +45,30 @@ It's computationally efficient for large datasets and complex models.
 To understand more, one can refer to it original [paper](https://arxiv.org/pdf/1603.00788.pdf).
 
 In this demo, we will try and use ADVI and HMC on various datasets and models and 
-compare their performances. We will be the PyMC3 library, with a tensorflow backend for this.
+compare their performances. We will be using the PyMC3 library, with a tensorflow backend for this.
 
 """
 
 model_choice = st.radio("DATA Models:", ["Beta Bernoulli Model", "Linear Regression Model"])
 
 button1 = st.button("Generate Data")
+
+st.sidebar.header('Choose Hyperparameters for the sampling runs')
+
+def user_input_features():
+    nochains = st.sidebar.slider('Number of Chains', 2, 2, 6, 1)
+    hmc_samples = st.sidebar.slider('Number of HMC samples', 1000, 1000, 2000, 100)
+    nofiterations = st.sidebar.slider('Number of ADVI iterations', 10000, 10000, 20000, 1000)
+    advi_samples = st.sidebar.slider('Number of ADVI samples', 500, 500, 1000, 100)
+
+    user_data = {'No chains': nochains,
+                 'HMC samples': hmc_samples,
+                 'No iterations': nofiterations,
+                 'ADVI samples': advi_samples,}
+    features = pd.DataFrame(user_data, index=[0])
+    return features
+
+df_user = user_input_features()
 
 if button1:
     if model_choice == "Beta Bernoulli Model":
@@ -63,6 +81,8 @@ if button1:
         This is Beta-Bernoulli distribution, where the prior is Beta(2, 2) and the likelihood is Bernoulli.
 
         Here, we have plotted the prior, likelihood and the true posterior.
+
+        The data in this case was [0, 0, 0, 0, 0, 0, 0, 0], ie all heads.
         """
 
         key = jax.random.PRNGKey(127)
@@ -137,6 +157,7 @@ if button1:
         axes[0].set_ylabel("Y")
         axes[0].set_xlabel("X1")
         axes[1].set_xlabel("X2")
+        fig.suptitle("Linear Regression Model Samples", fontsize=16)
         st.pyplot(fig)
 
 
@@ -154,6 +175,8 @@ if button:
         This is Beta-Bernoulli distribution, where the prior is Beta(2, 2) and the likelihood is Bernoulli.
 
         Here, we have plotted the prior, likelihood and the true posterior.
+
+        The data in this case was [0, 0, 0, 0, 0, 0, 0, 0], ie all heads.
         """
 
         key = jax.random.PRNGKey(127)
@@ -193,19 +216,22 @@ if button:
         """
         -----
         HMC
-        """
 
-        trace, time_hmc = run_hmc(dataset)
+        This may take about 30 seconds to run.
+        """
+        st.write(f"HMC posterior sample distribution for {df_user['No chains'].item()} chains")
+
+        trace, time_hmc = run_hmc(dataset, df_user['No chains'].item(), df_user['HMC samples'].item())
         st.write(f"Time taken to do HMC sampling: {time_hmc:.3f} seconds")
         thetas = jnp.array(trace.posterior["theta"])
 
         """
-        We run 4 chains of HMC with 2000 samples, and 1000 dropoff samples.
+        We run Chosen number of chains of HMC with 2000 samples, and 1000 dropoff samples.
         """
         fig, ax = plt.subplots(figsize=(8, 6))
-        ax.set_title("HMC posterior sample distribution for 4 chains")
+        ax.set_title(f"HMC posterior sample distribution for {df_user['No chains'].item()} chains")
         ax.plot(theta_range, exact_posterior.prob(theta_range), "b--", label="$p(x)$: True Posterior")
-        for i in range(1, 5):
+        for i in range(1, int(df_user['No chains'].item())+1):
             sns.kdeplot(thetas[i-1, :], label=f"HMC: Chain {i}", clip=(0.0, 1.0), alpha = 0.5)
         ax.set_xlabel("theta")
         ax.legend()
@@ -215,9 +241,9 @@ if button:
         We can visulaise the trace of the HMC samples for each chain used.
         """
 
-        fig, ax = plt.subplots(4,1, figsize=(10, 8))
-        fig.suptitle("HMC posterior sample distribution for 4 chains", fontsize=16)
-        for i in range(4):
+        fig, ax = plt.subplots(int(df_user['No chains'].item()),1, figsize=(int(df_user['No chains'].item()*10/4), 8))
+        fig.suptitle(f"HMC posterior sample distribution for {df_user['No chains'].item()} chains", fontsize=16)
+        for i in range(df_user['No chains'].item()):
             ax[i].plot(thetas[i-1, :], label = f"Chain {i+1}", alpha = 0.7)
             ax[i].set_xlabel("Samples")
             ax[i].set_ylabel("theta")
@@ -227,9 +253,11 @@ if button:
         """
         -----
         ADVI
+
+        This may take from 2 seconds to 10 seconds to run.
         """
 
-        trace_approx, advi, time_advi, tracker = run_advi(dataset)
+        trace_approx, advi, time_advi, tracker = run_advi(dataset, df_user['No iterations'].item(), df_user['ADVI samples'].item())
         st.write(f"Time taken to fit and sample from ADVI: {time_advi:.3f} seconds")
 
         """
@@ -281,7 +309,7 @@ if button:
         ax.set_title("HMC vs ADVI posterior samples")
         ax.plot(theta_range, exact_posterior.prob(theta_range), "b--", label="$p(x)$: True Posterior")
         sns.kdeplot(thetas_advi, label="ADVI posterior", clip=(0.0, 1.0))
-        for i in range(1, 5):
+        for i in range(1, df_user['No chains'].item()+1):
             sns.kdeplot(thetas[i-1, :], label=f"Chain {i}", clip=(0.0, 1.0), alpha = 0.5)
         ax.set_xlabel("theta")
         ax.legend()
@@ -323,6 +351,7 @@ if button:
         axes[0].set_ylabel("Y")
         axes[0].set_xlabel("X1")
         axes[1].set_xlabel("X2")
+        fig.suptitle("Linear Regression Model Samples", fontsize=16)
         st.pyplot(fig)
 
         """
@@ -333,9 +362,11 @@ if button:
         the data. We will using 4 chains of HMC with 2000 samples, and 1000 dropoff samples.
 
         We will plot the posterior distributions of the parameters alpha, beta1, beta2 and sigma, for all the 4 chains.
+
+        This may take about 30 seconds to 1 minute to run.
         """
 
-        trace, time_hmc = run_hmc2(X1, X2, Y)
+        trace, time_hmc = run_hmc2(X1, X2, Y, df_user['No chains'].item(), df_user['HMC samples'].item())
         st.write(f"Time taken to do HMC sampling: {time_hmc:.3f} seconds")
 
         alphas = jnp.array(trace.posterior["alpha"])
@@ -344,7 +375,7 @@ if button:
 
         fig, ax = plt.subplots(figsize=(8, 6))
         plt.title("HMC posterior sample distribution of alpha")
-        for i in range(1, 5):
+        for i in range(1, df_user['No chains'].item()+1):
             sns.kdeplot(alphas[i-1, :], label=f"alpha  Chain {i}", alpha = 0.5) #, bw_adjust=1)
         plt.xlabel("alpha")
         plt.legend()
@@ -353,11 +384,11 @@ if button:
 
         fig, ax = plt.subplots(figsize=(8, 6))
         ax.set_title("HMC posterior sample distribution of beta$")
-        for i in range(1, 5):
+        for i in range(1, df_user['No chains'].item()+1):
             sns.kdeplot(betas[i-1, :, 0], label=f"beta_1: Chain {i}", alpha = 0.5) #, bw_adjust=1)
 
         ax.vlines(x=np.mean(betas[:,:,0]), ymin=0, ymax=4, color="red", linestyle="--", label = f"Mean1: {np.mean(betas[:,:,0]):.3f}")
-        for i in range(1, 5):
+        for i in range(1, df_user['No chains'].item()+1):
             sns.kdeplot(betas[i-1, :, 1], label=f"beta_2: Chain {i}", alpha = 0.5) #, bw_adjust=1)
         ax.vlines(x=np.mean(betas[:,:,1]), ymin=0, ymax=1, color="red", linestyle="--", label = f"Mean2: {np.mean(betas[:,:,1]):.3f}")
         ax.set_xlabel("beta")
@@ -367,7 +398,7 @@ if button:
 
         fig, ax = plt.subplots(figsize=(8, 6))
         ax.set_title("HMC posterior sample distribution of sigma")
-        for i in range(1, 5):
+        for i in range(1, df_user['No chains'].item()+1):
             sns.kdeplot(sigmas[i-1, :], label=f"sigma Chain {i}", alpha = 0.5) #, bw_adjust=1)
         ax.set_xlabel("sigma")
         ax.legend()
@@ -381,9 +412,10 @@ if button:
         Now, we will try and use ADVI to approximate the posterior distribution of the parameters.
         The, we will sample parameters from the posterior.
 
+        This may take from 2 seconds to 10 seconds to run. (In some cases, it may take longer)
         """                 
 
-        trace_approx, advi, time_advi, tracker = run_advi2(X1, X2, Y)
+        trace_approx, advi, time_advi, tracker = run_advi2(X1, X2, Y, df_user['No iterations'].item(), df_user['ADVI samples'].item())
 
         st.write(f"Time taken to execute the ADVI fitting and sampling: {time_advi:.3f} seconds")
 
@@ -444,7 +476,7 @@ if button:
         fig, ax = plt.subplots(figsize=(8, 6))
         ax.set_title("HMC vs ADVI posterior samples")
         sns.kdeplot(alphas2, label="alpha ADVI posterior")
-        for i in range(1, 5):
+        for i in range(1, df_user['No chains'].item()+1):
             sns.kdeplot(alphas[i-1, :], label=f"alpha HMC Chain {i}", alpha = 0.5, linestyle="--")
             ax.set_xlabel("alpha")
             ax.legend()
@@ -454,12 +486,12 @@ if button:
         fig, ax = plt.subplots(figsize=(8, 6))
         ax.set_title("HMC vs ADVI posterior samples")
         sns.kdeplot(betas2[0,:, 0], label="beta_1 ADVI posterior")
-        for i in range(1, 5):
+        for i in range(1, df_user['No chains'].item()+1):
             sns.kdeplot(betas[i-1, :, 0], label=f"beta_1 HMC Chain {i}", alpha = 0.5, linestyle="--")
             ax.set_xlabel("beta1")
             ax.legend()
         sns.kdeplot(betas2[0,:, 1], label="beta_2 ADVI posterior")
-        for i in range(1, 5):
+        for i in range(1, df_user['No chains'].item()+1):
             sns.kdeplot(betas[i-1, :, 1], label=f"beta_2 HMC Chain {i}", alpha = 0.5, linestyle="--")
             ax.set_xlabel("Beta")
             ax.legend()
@@ -470,7 +502,7 @@ if button:
         fig, ax = plt.subplots(figsize=(8, 6))
         ax.set_title("HMC vs ADVI posterior samples")
         sns.kdeplot(sigmas2, label="sigma ADVI posterior")
-        for i in range(1, 5):
+        for i in range(1, df_user['No chains'].item()+1):
             sns.kdeplot(sigmas[i-1, :], label=f"sigma HMC Chain {i}", alpha = 0.5, linestyle="--")
             ax.set_xlabel("sigma")
             ax.legend()
@@ -486,7 +518,7 @@ if button:
     st.write(f" - ADVI took {time_advi:.3f} seconds to fit and sample from the posterior, while HMC took {time_hmc:.3f} seconds.")
 
     """
-    Hense we can see that ADVI is much faster than HMC. 
+    Hence we can see that ADVI is much faster than HMC. 
     
     ADVI has to fit its variational posterior, and then sample from it, while HMC samples directly from the posterior.
 

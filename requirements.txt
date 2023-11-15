@@ -6,3 +6,4 @@ jax
 jaxlib
 tensorflow_probability
 seaborn
+pandas
